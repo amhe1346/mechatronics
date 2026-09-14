@@ -1,0 +1,53 @@
+import RPi.GPIO as GPIO
+import time
+
+GPIO.setmode(GPIO.BCM)
+
+button_pin = 23
+button_reset_pin = 24
+led_pins =[17,27,22,5,6,13,19,26]
+led_current = 0 
+
+GPIO.setup(button_pin, GPIO.IN, pull_up_down=GPIO.PUD_DOWN)   # this sets the buttonso its "on" when pressed down 
+
+GPIO.setup(button_reset_pin, GPIO.IN, pull_up_down=GPIO.PUD_DOWN)
+
+for pin in led_pins:
+    GPIO.setup(pin, GPIO.OUT)
+    GPIO.output(pin, GPIO.LOW)
+
+#-----------
+# this is the function to turn on led 
+
+def pressbutton(channel):
+   global led_current
+   if led_current < len(led_pins):      # if the current led is less than the length of the list of the led pins 
+       GPIO.output(led_pins[led_current],GPIO.HIGH)  # set the led pin of the current led location to high. 
+       print("The Current LED turned on is," ,led_current)
+       led_current = led_current +1  # this increases the led current location to the next pin in the list 
+
+GPIO.add_event_detect(button_pin, GPIO.RISING, callback=pressbutton, bouncetime=100)
+
+
+#reset function, when reset button pressed, the led current is set back to 0 and for each led, its set to low 
+def press_reset_button(channel):
+   global led_current
+   led_current = 0 
+   for pin in led_pins:
+        GPIO.output(pin,GPIO.LOW)
+
+
+
+       
+
+GPIO.add_event_detect(button_reset_pin, GPIO.RISING, callback=press_reset_button, bouncetime=100
+
+
+#need the while true section, so it keeps running and doesnt immediatly end before buttons can be pressed 
+try:
+    while True:
+        time.sleep(0.1)
+except KeyboardInterrupt:
+    pass
+finally:
+    GPIO.cleanup()
