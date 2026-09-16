@@ -1,0 +1,137 @@
+import RPi.GPIO as GPIO
+import time
+import queue
+
+GPIO.setmode(GPIO.BCM)    # this sets the numbering system 
+
+button_pin = 23
+button_reset_pin = 24
+
+# 3 yellow one green 3 red 
+
+led_pins_yellow =[17,27,22]
+led_pins_green =[5]
+led_pins_red = [6,13,19]
+
+led_pins = [17,27,22,5,6,13,19]
+green_pin = led_pins_green[0]
+
+# forward then backward (skip the two ends so they aren't lit twice) = bounce
+sequence = led_pins + led_pins[-2:0:-1]
+
+led_current = 0
+
+START_DELAY = 0.4
+MIN_DELAY = 0.08
+SPEEDUP_FACTOR = 0.9   # applied once per full pass through the sequence
+
+step_delay = START_DELAY
+next_step_time = 0.0
+
+events = queue.Queue()   # FIFO buffer for button-press events from GPIO callbacks
+
+
+GPIO.setup(button_pin, GPIO.IN, pull_up_down=GPIO.PUD_DOWN)   # this sets the button so its "on" when pressed down 
+
+GPIO.setup(button_reset_pin, GPIO.IN, pull_up_down=GPIO.PUD_DOWN)
+
+
+
+# this sets all the pins to output and off 
+for pin in led_pins:
+    GPIO.setup(pin, GPIO.OUT)
+    GPIO.output(pin, GPIO.LOW)
+
+
+# keep GPIO callbacks minimal, just enqueue the event for the main loop to handle
+def pressbutton(channel):
+    events.put(channel)
+
+
+def press_reset_button(channel):
+    events.put(channel)
+
+
+GPIO.add_event_detect(button_pin, GPIO.RISING, callback=pressbutton, bouncetime=200)
+GPIO.add_event_detect(button_reset_pin, GPIO.RISING, callback=press_reset_button, bouncetime=200)
+
+
+def reset_game():
+    global led_current, step_delay, next_step_time
+    for pin in led_pins:
+        GPIO.output(pin, GPIO.LOW)
+    led_current = 0
+    step_delay = START_DELAY
+    next_step_time = time.monotonic()
+    GPIO.output(sequence[led_current], GPIO.HIGH)
+    print("Game reset")
+
+
+
+# move the led light through bounce sequence 
+# Sit gets faster each full pass with the speed up factor, theres a maximum speed 
+# the starting delay is .4s 
+def advance_led():
+    global led_current, step_delay, next_step_time
+    GPIO.output(sequence[led_current], GPIO.LOW)  #turn off current led #sequence is the full led list , led current is the index 
+    led_current = (led_current + 1) % len(sequence) # new current 
+    GPIO.output(sequence[led_current], GPIO.HIGH)
+    next_step_time = time.monotonic() + step_delay  # this is how its non blocking , 
+    #so i dont use time.sleep which would freeze and not get the button press
+
+
+
+
+
+
+# blink the green led 3 times (briefly blocks the loop bc of the time.sleep)
+def pulse_green():
+    for _ in range(3):
+        GPIO.output(green_pin, GPIO.HIGH)
+        time.sleep(0.15)
+        GPIO.output(green_pin, GPIO.LOW)
+        time.sleep(0.15)
+
+
+# 
+def handle_button_press():
+    global led_current, step_delay, next_step_time
+    if sequence[led_current] == green_pin:
+        print("You win!")
+        step_delay = max(MIN_DELAY, step_delay * SPEEDUP_FACTOR)  # only speed up on a hit
+        print(f"speed increased, step delay is now {step_delay:.3f}s")
+        pulse_green()  #  blink before resetting position   # THIS BLOCKS THE MAIN LOOP , the reset wont work 
+        led_current = 0  # back to the start of the sequence
+        GPIO.output(sequence[led_current], GPIO.HIGH)
+        next_step_time = time.monotonic() + step_delay  # had to add this bc the sleep of the pulse green messed with the time 
+        # the new deadline is measured after the pulse 
+    else: # on a miss it prints and resets 
+        print("Miss")
+        reset_game()
+
+
+def main():
+    reset_game()       #turn off all led and reset the step delay 
+    try:
+        while True:
+            now = time.monotonic()
+            if now >= next_step_time:
+                advance_led()       # check if led scheduled deadline passed the advanced led functionmoves light , non blocking 
+
+            while not events.empty():   # 
+                channel = events.get_nowait()
+                if channel == button_reset_pin:   #checkif reset buttonpressed 
+                    reset_game()
+                elif channel == button_pin:   # check if the button pressed
+                    handle_button_press()
+
+            time.sleep(0.01)   # very small sleep 
+    except KeyboardInterrupt:
+        pass
+    finally:
+        GPIO.cleanup()
+
+
+if __name__ == "__main__":
+    main()
+
