@@ -1,0 +1,148 @@
+#include <Arduino.h>
+
+// Define Sensor Pins
+const int leftSensor = 30;   // Connect to DO of Left TCRT5000
+const int rightSensor = 31;  // Connect to DO of Right TCRT5000
+
+
+// --- PIN DEFINITIONS ---
+// Front Left Motor (Motor 1)
+const int pin_FL_DIR = 22;
+const int pin_FL_PWM = 2;
+
+// Front Right Motor (Motor 2)
+const int pin_FR_DIR = 24;
+const int pin_FR_PWM = 3;
+
+// Rear Left Motor (Motor 3)
+const int pin_RL_DIR = 26;
+const int pin_RL_PWM = 4;
+
+// Rear Right Motor (Motor 4)
+const int pin_RR_DIR = 28;
+const int pin_RR_PWM = 5;
+
+// Measured: white tape reads LOW, black floor reads HIGH
+const int TAPE_LEVEL = LOW;
+
+const int LINE_SPEED = 120;
+const int TURN_ADJUST = 55;
+
+void moveForward();
+void turnLeft();
+void turnRight();
+void stopRobot();
+void moveMecanum(int Y, int X, int Z);
+void setMotor(int targetSpeed, int dirPin, int pwmPin);
+
+void setup() {
+ 
+  // Initialize all motor control pins as outputs
+  pinMode(pin_FL_DIR, OUTPUT);
+  pinMode(pin_FL_PWM, OUTPUT);
+  
+  pinMode(pin_FR_DIR, OUTPUT);
+  pinMode(pin_FR_PWM, OUTPUT);
+  
+  pinMode(pin_RL_DIR, OUTPUT);
+  pinMode(pin_RL_PWM, OUTPUT);
+  
+  pinMode(pin_RR_DIR, OUTPUT);
+  pinMode(pin_RR_PWM, OUTPUT);
+
+  Serial.begin(9600);
+
+  pinMode(leftSensor, INPUT);
+  pinMode(rightSensor, INPUT);
+
+}
+
+void loop() {
+  bool leftOnTape = (digitalRead(leftSensor) == TAPE_LEVEL);
+  bool rightOnTape = (digitalRead(rightSensor) == TAPE_LEVEL);
+
+  // WHITE TAPE ON BLACK FLOOR
+  if (!leftOnTape && !rightOnTape) {
+    // Both see black floor -> tape is between sensors -> Move Straight
+    moveForward();
+  } 
+  else if (leftOnTape && !rightOnTape) {
+    // Left sensor hit the tape -> Turn Left to adjust
+    turnLeft();
+  } 
+  else if (!leftOnTape && rightOnTape) {
+    // Right sensor hit the tape -> Turn Right to adjust
+    turnRight();
+  } 
+  else {
+    // Both on tape (intersection or T-junction) -> Stop or choose path
+    stopRobot();
+  }
+}
+
+
+
+
+
+
+
+
+
+
+ /* Core function to calculate and set motor speeds based on directional vectors.
+ * @param Y  Forward/Backward target speed (-255 to 255)
+ * @param X  Strafe Left/Right target speed (-255 to 255)
+ * @param Z  Rotation/Turn speed (-255 to 255)
+ */
+void moveMecanum(int Y, int X, int Z) {
+  
+  // Apply the kinematic formulas
+  int speed_FL = Y + X + Z;
+  int speed_FR = Y - X - Z;
+  int speed_RL = Y - X + Z;
+  int speed_RR = Y + X - Z;
+
+  // Constrain outputs to valid PWM ranges (-255 to 255)
+  speed_FL = constrain(speed_FL, -255, 255);
+  speed_FR = constrain(speed_FR, -255, 255);
+  speed_RL = constrain(speed_RL, -255, 255);
+  speed_RR = constrain(speed_RR, -255, 255);
+
+  // Drive individual motors
+  setMotor(speed_FL, pin_FL_DIR, pin_FL_PWM);
+  setMotor(speed_FR, pin_FR_DIR, pin_FR_PWM);
+  setMotor(speed_RL, pin_RL_DIR, pin_RL_PWM);
+  setMotor(speed_RR, pin_RR_DIR, pin_RR_PWM);
+}
+
+void moveForward() {
+  moveMecanum(LINE_SPEED, 0, 0);
+}
+
+void turnLeft() {
+  moveMecanum(LINE_SPEED, 0, -TURN_ADJUST);
+}
+
+void turnRight() {
+  moveMecanum(LINE_SPEED, 0, TURN_ADJUST);
+}
+
+void stopRobot() {
+  moveMecanum(0, 0, 0);
+}
+
+/**
+ * Helper function to handle direction bit mapping and PWM generation.
+ */
+void setMotor(int targetSpeed, int dirPin, int pwmPin) {
+  if (targetSpeed > 0) {
+    digitalWrite(dirPin, HIGH);      // Move forward
+    analogWrite(pwmPin, targetSpeed);
+  } else if (targetSpeed < 0) {
+    digitalWrite(dirPin, LOW);       // Move backward
+    analogWrite(pwmPin, abs(targetSpeed)); 
+  } else {
+    digitalWrite(dirPin, LOW);       // Brake / Stop
+    analogWrite(pwmPin, 0);
+  }
+}
