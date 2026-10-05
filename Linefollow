@@ -1,0 +1,88 @@
+#define AIN1 4
+#define AIN2 5
+#define BIN1 6
+#define BIN2 7
+#define PWMA 12
+#define PWMB 13
+#define STDBY 11
+
+#define leftSensorDigital 26
+#define leftSensorAnalog A1
+#define rightSensorDigital 48
+#define rightSensorAnalog A0
+
+void moveForward();
+void turnLeft();
+void turnRight();
+void stopRobot();
+
+void setup() {
+  // put your setup code here, to run once:
+  pinMode(PWMB, OUTPUT);
+  pinMode(BIN1, OUTPUT);
+  pinMode(BIN2, OUTPUT);
+  pinMode(AIN1, OUTPUT);
+  pinMode(AIN2, OUTPUT);
+  pinMode(STDBY, OUTPUT);
+  Serial.begin(9600);
+}
+
+void loop() {
+  digitalWrite(STDBY, HIGH);
+  // put your main code here, to run repeatedly:
+  //  bool leftOnTape = digitalRead(leftSensorDigital);
+  Serial.println(analogRead(leftSensorAnalog));
+  Serial.println(analogRead(rightSensorAnalog));
+  bool leftOnTape = analogRead(leftSensorAnalog) < 450;
+  // bool rightOnTape = digitalRead(rightSensorDigital);
+  bool rightOnTape = analogRead(rightSensorAnalog) < 450;
+  if(!rightOnTape && !leftOnTape){
+    moveForward();
+  } else if(rightOnTape && !leftOnTape){
+    turnRight();
+  } else if(!rightOnTape && leftOnTape){
+    turnLeft();
+  } else {
+    stopMove();
+  }
+}
+
+void moveForward(){
+  Serial.println("Moving forward");
+  digitalWrite(BIN1, HIGH);
+  digitalWrite(BIN2, LOW);
+  digitalWrite(AIN1, HIGH);
+  digitalWrite(AIN2, LOW);
+  analogWrite(PWMA, 60);
+  analogWrite(PWMB, 60);
+}
+
+void turnRight(){
+  Serial.println("Turning right");
+  digitalWrite(BIN1, LOW);
+  digitalWrite(BIN2, HIGH);
+  digitalWrite(AIN1, HIGH);
+  digitalWrite(AIN2, LOW);
+  analogWrite(PWMA, 180);
+  analogWrite(PWMB, 180);
+}
+
+void turnLeft(){
+  Serial.println("Turning left");
+  digitalWrite(BIN1, HIGH);
+  digitalWrite(BIN2, LOW);
+  digitalWrite(AIN1, LOW);
+  digitalWrite(AIN2, HIGH);
+  analogWrite(PWMA, 180);
+  analogWrite(PWMB, 180);
+}
+
+void stopMove(){
+  Serial.println("Turning right");
+  digitalWrite(BIN1, HIGH);
+  digitalWrite(BIN2, LOW);
+  digitalWrite(AIN1, HIGH);
+  digitalWrite(AIN2, LOW);
+  analogWrite(PWMA, 0);
+  analogWrite(PWMB, 0);
+}
