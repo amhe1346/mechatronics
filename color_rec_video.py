@@ -9,16 +9,23 @@ import color_change
 
 # Add your video path here
 # this might need to be updated
-video_path = "/home/pi/Videos/v.mp4"
+from picamera2 import Picamera2
 
-cap = cv2.VideoCapture(video_path)
+picam2 = Picamera2()
+picam2.configure(
+    picam2.create_preview_configuration(
+        main={"size": (640, 480), "format": "RGB888"}
+    )
+)
+picam2.start()
+
+
 
 while True:
 
-    ret, img = cap.read()
+    img = picam2.capture_array()
 
-    if not ret:
-        break
+   
 
     hsv = cv2.cvtColor(img, cv2.COLOR_BGR2HSV)
 
@@ -138,5 +145,5 @@ while True:
     if cv2.waitKey(25) & 0xFF == ord('q'):
         break
 
-cap.release()
+picam2.stop()
 cv2.destroyAllWindows()
