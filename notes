@@ -1,0 +1,68 @@
+notes
+
+ motor driver is a tb6612fng
+
+ Move the PWM wires to PWM-capable pins on an Uno (~3, 5, 6, 9, 10, 11), since analogWrite on 2, 12 and 13 only gives full speed or off. For example:
+
+
+
+arduino elegoo
+
+
+
+
+2. Classical Tracking Algorithms
+
+If you are tracking by color density, movement profiles, or raw features rather than structural appearance bounding boxes, OpenCV includes dedicated mathematical implementations:
+• CamShift & MeanShift (cv2.CamShift, cv2.meanShift): Best for color-histogram based tracking (like tracking an orange ball or a specific colored shirt).
+• Optical Flow (cv2.calcOpticalFlowPyrLK): Evaluates vector displacement of specific feature points (Sparse/KLT) or all pixels (Dense) across frames.
+
+
+
+camshift is probably the better option fo this use
+
+
+
+i-object CamShift tracking (red ball, yellow hat, blue hat)
+Approach
+Run one independent CamShift tracker per color, inside color_rec_video.py (Picamera2 loop).
+
+Use the existing HSV inRange masks (red = two ranges OR'd for hue wrap) as the CamShift "back-projection" image instead of a hand-picked ROI histogram. This avoids the red hue-wrap problem and needs no manual ROI selection.
+Per frame: blur/open the mask, then for each tracker:
+If tracking: cv2.CamShift(mask, window, term_crit).
+If the pixel sum inside the returned window is below a threshold (lost) or no window yet: re-acquire from the largest contour (area > 300, as already used) and set a new window.
+Draw a rotated box + label per object in its color; skip drawing when lost.
+Keep the existing LED logic (largest visible color drives color_change).
+Todos
+Refactor masks into a dict {name: (mask, box_color)} for Red/Yellow/Blue.
+Add a Tracker class (window, lost flag, update(mask) -> box or None).
+Replace detect_color drawing with tracker updates and cv2.boxPoints drawing (use np.intp, not deprecated np.int0).
+Preserve the LED selection using each tracker's window area.
+Test on the Pi with all three objects, occlusion, and re-entry.
+Live top-down map (added)
+Yes, easy with OpenCV: draw on a separate blank numpy image and cv2.imshow("Map", map_img) each frame.
+
+Camera sits at bottom-center of the map, looking up; a FOV wedge is drawn (Pi camera ~62 deg horizontal).
+Bearing from the tracker's box center: angle = (cx - W/2)/W * HFOV.
+Distance from apparent size: d = k / sqrt(area) (or known real width: d = f*realW/pixelW); calibrate k once by holding each object at a measured distance. Rough estimate only, not exact.
+Map position: mx = cx0 + d*sin(angle)*scale, my = cy0 - d*cos(angle)*scale.
+Colored dot + label per object (red/yellow/blue); hide when lost.
+Fading trail: keep a short deque of past points per object, or multiply the map by ~0.95 each frame (cv2.addWeighted) before drawing the new dots, so old positions fade.
+Range rings every 0.5 m and a grid for readability.
+Todo: map-view (depends on draw-led).
+Notes
+Capture uses cv2.VideoCapture(0) (not picamera2); new file multi_track_map.py, keeps color_rec_video.py untouched. LED calls (color_change) are optional and wrapped in try/except for non-Pi use.
+Lost grace period: ~5 frames before an object is declared lost.
+CamShift can't separate two same-colored objects; fine here since all three have different hues.
+Yellow range (H 18-40) may overlap skin/wood; tune S/V or add a minimum-area filter.
+Picamera2 "RGB888" is actually BGR in memory, so the existing BGR2HSV is correct.
+Optional: circularity check for the ball to reject red clutter.
+
+
+
+
+Added multi_track_map.py. It uses cv2.VideoCapture(0) and one CamShift tracker per color (red ball, yellow hat, blue hat). It re-acquires a lost object from the largest blob after a 5-frame grace period. A second "Map" window shows a top-down view with a field-of-view wedge, range rings, labeled dots and a fading trail. I tested the tracking and map math on a synthetic image only, with no real camera. Calibrate DIST_K (distance estimate), set HFOV_DEG for your camera, and tune the HSV ranges for your lighting. Run with python multi_track_map.py and press q to quit.
+
+
++174
+-1
