@@ -1,0 +1,94 @@
+// TOP AND BOTTOM ARE DETERMINED BY ALIGNING THE BREADBOARD SUCH THAT YOU CAN READ THE MOTOR DRIVERS. 
+
+// BOTOM MOTOR DRIVER  PINS , FOR RIGHT MOTORS. 
+
+#define R_AIN1 4
+#define R_AIN2 5
+#define R_BIN1 7
+#define R_BIN2 6
+#define R_PWMA 12
+#define R_PWMB 13
+
+
+//TOP MOTOR DRIVER, LEFT MOTORS 0
+#define L_AIN1 8
+#define L_AIN2 9
+#define L_BIN1 10
+#define L_BIN2 11
+#define L_PWMA 3
+#define L_PWMB 2
+
+
+//this is the direction, set to -1 if its going backwards
+
+const int DIR_LA = 1, DIR_LB = 1, DIR_RA = 1, DIR_RB = 1;
+const int TEST_SPEED = 200;
+const int RUN_MS = 1000;
+
+
+
+
+//#define STDBY 11 // drivers STBy pin , or just connect to HIGH to enable both drivers
+
+void setupMotor(int in1, int in2, int pwm) {
+  pinMode(in1, OUTPUT);
+  pinMode(in2, OUTPUT);
+  pinMode(pwm, OUTPUT);
+}
+
+void driveMotor(int in1, int in2, int pwm, int speed) {
+  speed = constrain(speed, -255, 255);
+  digitalWrite(in1, speed > 0);
+  digitalWrite(in2, speed < 0);
+  analogWrite(pwm, abs(speed));
+}
+
+
+// Motor wrappers. A = one motor, B = the other, on each driver
+void leftA(int s)  { driveMotor(L_AIN1, L_AIN2, L_PWMA, s * DIR_LA); }
+void leftB(int s)  { driveMotor(L_BIN1, L_BIN2, L_PWMB, s * DIR_LB); }
+void rightA(int s) { driveMotor(R_AIN1, R_AIN2, R_PWMA, s * DIR_RA); }
+void rightB(int s) { driveMotor(R_BIN1, R_BIN2, R_PWMB, s * DIR_RB); }
+
+void stopAll() { leftA(0); leftB(0); rightA(0); rightB(0); }
+
+void move(int l, int r) {       // l = both left motors, r = both right motors
+  leftA(l); leftB(l); rightA(r); rightB(r);
+}
+
+void runFor(void (*f)(int), int s) {
+  f(s); delay(RUN_MS); f(0);
+}
+
+void setup() {Serial.begin(9600);
+  setupMotor(L_AIN1, L_AIN2, L_PWMA);
+  setupMotor(L_BIN1, L_BIN2, L_PWMB);
+  setupMotor(R_AIN1, R_AIN2, R_PWMA);
+  setupMotor(R_BIN1, R_BIN2, R_PWMB);
+  stopAll();
+  Serial.println(F("1=leftA 2=leftB 3=rightA 4=rightB (forward, 1s)"));
+  Serial.println(F("q/w/e/r = same motors in REVERSE"));
+  Serial.println(F("f=forward b=back l=turn left r=turn right"));
+  Serial.println(F("x=stop"));  
+}
+
+void loop() {
+  if (!Serial.available()) return;
+  char c = Serial.read();
+  switch (c) {
+    case '1': runFor(leftA,  TEST_SPEED); break;
+    case '2': runFor(leftB,  TEST_SPEED); break;
+    case '3': runFor(rightA, TEST_SPEED); break;
+    case '4': runFor(rightB, TEST_SPEED); break;
+    case 'q': runFor(leftA,  -TEST_SPEED); break;
+    case 'w': runFor(leftB,  -TEST_SPEED); break;
+    case 'e': runFor(rightA, -TEST_SPEED); break;
+    case 'r': runFor(rightB, -TEST_SPEED); break;
+    case 'f': move( TEST_SPEED,  TEST_SPEED); delay(RUN_MS); stopAll(); break;
+    case 'b': move(-TEST_SPEED, -TEST_SPEED); delay(RUN_MS); stopAll(); break;
+    
+    case 'l': move(-TEST_SPEED,  TEST_SPEED); delay(RUN_MS); stopAll(); break;
+    case 't': move( TEST_SPEED, -TEST_SPEED); delay(RUN_MS); stopAll(); break;
+    case 'x': stopAll(); break;
+  }
+}
