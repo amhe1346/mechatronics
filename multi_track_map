@@ -1,0 +1,173 @@
+import math
+from collections import deque
+
+import cv2
+import numpy as np
+
+try:
+    import color_change
+except Exception:
+    color_change = None
+
+# Camera / map settings
+HFOV_DEG = 62.0          # horizontal field of view of the camera
+DIST_K = 6000.0          # distance(cm) = DIST_K / sqrt(area_px); calibrate this
+MAP_SIZE = 500
+MAP_SCALE = 2.0          # pixels per cm
+MIN_AREA = 300
+LOST_FRAMES = 5
+TRAIL_LEN = 60
+FADE = 0.96
+
+TERM_CRIT = (cv2.TERM_CRITERIA_EPS | cv2.TERM_CRITERIA_COUNT, 10, 1)
+KERNEL = np.ones((5, 5), np.uint8)
+
+# name: (list of (lower, upper) HSV ranges, BGR draw color)
+COLORS = {
+    "Red": ([((0, 80, 50), (10, 255, 255)), ((170, 80, 50), (179, 255, 255))], (0, 0, 255)),
+    "Yellow": ([((18, 80, 80), (35, 255, 255))], (0, 255, 255)),
+    "Blue": ([((95, 80, 50), (130, 255, 255))], (255, 0, 0)),
+}
+
+
+def make_mask(hsv, ranges):
+    mask = None
+    for lo, hi in ranges:
+        m = cv2.inRange(hsv, np.array(lo), np.array(hi))
+        mask = m if mask is None else cv2.bitwise_or(mask, m)
+    mask = cv2.GaussianBlur(mask, (5, 5), 0)
+    _, mask = cv2.threshold(mask, 127, 255, cv2.THRESH_BINARY)
+    return cv2.morphologyEx(mask, cv2.MORPH_OPEN, KERNEL)
+
+
+class Tracker:
+    def __init__(self):
+        self.window = None
+        self.missed = LOST_FRAMES
+        self.box = None
+        self.area = 0
+        self.trail = deque(maxlen=TRAIL_LEN)
+
+    @property
+    def visible(self):
+        return self.box is not None
+
+    def acquire(self, mask):
+        contours, _ = cv2.findContours(mask, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+        best = max(contours, key=cv2.contourArea, default=None)
+        if best is None or cv2.contourArea(best) < MIN_AREA:
+            return False
+        self.window = cv2.boundingRect(best)
+        return True
+
+    def update(self, mask):
+        found = False
+        if self.window is not None:
+            rot, win = cv2.CamShift(mask, self.window, TERM_CRIT)
+            x, y, w, h = win
+            roi = mask[y:y + h, x:x + w]
+            area = cv2.countNonZero(roi) if roi.size else 0
+            if area >= MIN_AREA:
+                self.window = win
+                self.box = rot
+                self.area = area
+                found = True
+        if not found and self.acquire(mask):
+            x, y, w, h = self.window
+            self.box = ((x + w / 2, y + h / 2), (w, h), 0)
+            self.area = cv2.countNonZero(mask[y:y + h, x:x + w])
+            found = True
+
+        if found:
+            self.missed = 0
+        else:
+            self.missed += 1
+            if self.missed >= LOST_FRAMES:
+                self.box = None
+                self.window = None
+                self.area = 0
+        return self.visible
+
+
+def to_map(cx, frame_w, area, origin):
+    angle = math.radians((cx - frame_w / 2) / frame_w * HFOV_DEG)
+    dist = DIST_K / math.sqrt(max(area, 1))
+    mx = int(origin[0] + dist * MAP_SCALE * math.sin(angle))
+    my = int(origin[1] - dist * MAP_SCALE * math.cos(angle))
+    return mx, my
+
+
+def draw_map_base(img, origin):
+    half = math.radians(HFOV_DEG / 2)
+    length = MAP_SIZE
+    for s in (-1, 1):
+        end = (int(origin[0] + s * length * math.sin(half)),
+               int(origin[1] - length * math.cos(half)))
+        cv2.line(img, origin, end, (80, 80, 80), 1)
+    for r_cm in range(50, 300, 50):
+        r = int(r_cm * MAP_SCALE)
+        cv2.circle(img, origin, r, (50, 50, 50), 1)
+        cv2.putText(img, f"{r_cm}cm", (origin[0] + 4, origin[1] - r + 12),
+                    cv2.FONT_HERSHEY_SIMPLEX, 0.35, (110, 110, 110), 1)
+    cv2.circle(img, origin, 6, (255, 255, 255), -1)
+
+
+def main():
+    cap = cv2.VideoCapture(0)
+    if not cap.isOpened():
+        raise SystemExit("Could not open camera 0")
+
+    trackers = {name: Tracker() for name in COLORS}
+    origin = (MAP_SIZE // 2, MAP_SIZE - 20)
+    trail_img = np.zeros((MAP_SIZE, MAP_SIZE, 3), np.uint8)
+
+    while True:
+        ok, frame = cap.read()
+        if not ok:
+            break
+        h_px, w_px = frame.shape[:2]
+        hsv = cv2.cvtColor(frame, cv2.COLOR_BGR2HSV)
+
+        trail_img = (trail_img * FADE).astype(np.uint8)
+        dots = []
+
+        for name, (ranges, bgr) in COLORS.items():
+            tr = trackers[name]
+            mask = make_mask(hsv, ranges)
+            if tr.update(mask):
+                (cx, cy), _, _ = tr.box
+                pts = np.intp(cv2.boxPoints(tr.box))
+                cv2.polylines(frame, [pts], True, bgr, 2)
+                cv2.putText(frame, name, (int(cx) - 20, int(cy) - 10),
+                            cv2.FONT_HERSHEY_SIMPLEX, 0.6, bgr, 2)
+                mx, my = to_map(cx, w_px, tr.area, origin)
+                if 0 <= mx < MAP_SIZE and 0 <= my < MAP_SIZE:
+                    cv2.circle(trail_img, (mx, my), 3, bgr, -1)
+                    dots.append((name, (mx, my), bgr))
+
+        map_img = trail_img.copy()
+        draw_map_base(map_img, origin)
+        for name, pt, bgr in dots:
+            cv2.circle(map_img, pt, 8, bgr, -1)
+            cv2.putText(map_img, name, (pt[0] + 10, pt[1] + 4),
+                        cv2.FONT_HERSHEY_SIMPLEX, 0.45, bgr, 1)
+
+        if color_change is not None:
+            visible = [(trackers[n].area, n) for n in COLORS if trackers[n].visible]
+            if not visible:
+                color_change.turnOff()
+            else:
+                best = max(visible)[1]
+                getattr(color_change, best.lower())()
+
+        cv2.imshow("Tracking", frame)
+        cv2.imshow("Map", map_img)
+        if cv2.waitKey(1) & 0xFF == ord('q'):
+            break
+
+    cap.release()
+    cv2.destroyAllWindows()
+
+
+if __name__ == "__main__":
+    main()
